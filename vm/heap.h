@@ -5,6 +5,8 @@
 #ifndef VM_HEAP_H_
 #define VM_HEAP_H_
 
+#include <functional>
+
 #include "vm/assert.h"
 #include "vm/flags.h"
 #include "vm/globals.h"
@@ -313,6 +315,9 @@ class Heap {
 
   intptr_t handles() const { return handles_size_; }
   void set_handles(intptr_t value) { handles_size_ = value; }
+
+  // Inspect heap.
+  void Walk(std::function<void(HeapObject)> &&function);
 
  private:
   void GrowRememberedSet();

@@ -1190,6 +1190,28 @@ void Heap::ForwardHeap() {
   }
 }
 
+void Heap::Walk(std::function<void(HeapObject)> &&function) {
+  // Walk new space
+  uword scan = to_.object_start();
+  while (scan < top_) {
+    HeapObject obj = HeapObject::FromAddr(scan);
+    function(obj);
+    scan += obj->HeapSize();
+  }
+
+  // Walk old space
+  for (Region* region = regions_; region != nullptr; region = region->next()) {
+    uword scan = region->object_start();
+    while (scan < region->object_end()) {
+      HeapObject obj = HeapObject::FromAddr(scan);
+      if (obj->cid() >= kFirstLegalCid) {
+        function(obj);
+      }
+      scan += obj->HeapSize();
+    }
+  }
+}
+
 void Heap::ForwardClassIds() {
   // For forwarded classes, use the cid of the old class. For most classes, we
   // could use the cid of the new class or a newlly allocated cid (provided all

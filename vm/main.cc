@@ -6,10 +6,12 @@
 #if !defined(OS_EMSCRIPTEN)
 
 #include <signal.h>
+#include <string>
 
 #include "vm/os.h"
 #include "vm/primordial_soup.h"
 #include "vm/virtual_memory.h"
+#include "vm/heap_analyzer.h"
 
 static void SIGINT_handler(int sig) {
   PrimordialSoup_InterruptAll();
@@ -22,6 +24,11 @@ int main(int argc, const char** argv) {
   }
 
   psoup::VirtualMemory snapshot = psoup::VirtualMemory::MapReadOnly(argv[1]);
+  if (argc == 3 && std::string(argv[2]) == "--analyze") {
+    analyze(snapshot);
+    return 0;
+  }
+  
   PrimordialSoup_Startup();
   void (*defaultSIGINT)(int) = signal(SIGINT, SIGINT_handler);
 
