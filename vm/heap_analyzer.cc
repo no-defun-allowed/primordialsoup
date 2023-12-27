@@ -13,6 +13,9 @@
 #include "vm/isolate.h"
 #include "vm/interpreter.h"
 
+using size = std::tuple<int /* count */, int /* bytes */>;
+using entry = std::tuple<intptr_t, int, int>;
+
 std::string class_name(psoup::Heap *heap, intptr_t cid) {
   psoup::Behavior cls = heap->ClassAt(cid);
   psoup::Behavior theMetaclass = heap->ClassAt(psoup::kSmiCid)->Klass(heap)->Klass(heap);
@@ -35,23 +38,7 @@ std::string class_name(psoup::Heap *heap, intptr_t cid) {
   }
 }
 
-
-void analyze(psoup::VirtualMemory &snapshot) {
-  using size = std::tuple<int /* count */, int /* bytes */>;
-  using entry = std::tuple<intptr_t, int, int>;
-
-  // Load the snapshot
-  PrimordialSoup_Startup();
-  psoup::Heap *heap = new psoup::Heap();
-  heap->InitializeInterpreter(new psoup::Interpreter(heap, nullptr));
-  {
-    psoup::Deserializer deserializer(heap,
-                                     reinterpret_cast<void*>(snapshot.base()),
-                                     snapshot.size());
-    deserializer.Deserialize();
-  }
-
-  // Count instances
+void count_instances(psoup::Heap *heap) {
   std::unordered_map<intptr_t, size> results;
   heap->Walk([&](psoup::HeapObject h) {
     size prior = results[h->ClassId()];
@@ -78,4 +65,38 @@ void analyze(psoup::VirtualMemory &snapshot) {
     total_bytes += bytes;
   }
   printf("%60s %10d %10d\n", "Total", total_count, total_bytes);
+}
+
+void write_graph(psoup::Heap *heap) {
+  FILE *f = fopen("/tmp/graph.csv", "w");
+  fprintf(f, "source,target\n");
+  heap->Walk([&](psoup::HeapObject source) {
+    std::string source_class = class_name(heap, source->ClassId());
+    psoup::Object *from, *to;
+    source->Pointers(&from, &to);
+    for (psoup::Object *ptr = from; ptr <= to; ptr++) {
+      if (ptr->IsHeapObject()) {
+        std::string target_class = class_name(heap, ptr->ClassId());
+        fprintf(f, "%s@%lx,%s@%lx\n",
+                source_class.c_str(), (long)source.Addr(),
+                target_class.c_str(), (long)static_cast<psoup::HeapObject>(*ptr).Addr());
+      }
+    }
+  });
+  fclose(f);
+}
+
+void analyze(psoup::VirtualMemory &snapshot) {
+  // Load the snapshot
+  PrimordialSoup_Startup();
+  psoup::Heap *heap = new psoup::Heap();
+  heap->InitializeInterpreter(new psoup::Interpreter(heap, nullptr));
+  {
+    psoup::Deserializer deserializer(heap,
+                                     reinterpret_cast<void*>(snapshot.base()),
+                                     snapshot.size());
+    deserializer.Deserialize();
+  }
+  count_instances(heap);
+  write_graph(heap);
 }
