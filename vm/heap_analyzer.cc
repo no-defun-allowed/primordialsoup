@@ -1,7 +1,9 @@
 #include <algorithm>
 #include <cstdio>
+#include <queue>
 #include <string>
 #include <tuple>
+#include <unordered_set>
 #include <unordered_map>
 #include <vector>
 
@@ -86,6 +88,70 @@ void write_graph(psoup::Heap *heap) {
   fclose(f);
 }
 
+std::vector<psoup::HeapObject> find_root(std::string name, psoup::Heap *heap) {
+  std::vector<psoup::HeapObject> results;
+  heap->Walk([&](psoup::HeapObject o) {
+    if (class_name(heap, o->ClassId()) == name)
+      results.push_back(o);
+  });
+  return results;
+}
+
+struct trace_path {
+public:
+  trace_path(psoup::HeapObject head) : head(head), tail(nullptr) {}
+  trace_path(psoup::HeapObject head, trace_path *tail) : head(head), tail(tail) {}
+
+  bool contains(psoup::HeapObject e) {
+    if (e.Addr() == head.Addr()) return true;
+    if (tail == nullptr) return false;
+    return tail->contains(e);
+  }
+  int length() {
+    return tail == nullptr ? 1 : 1 + tail->length();
+  }
+  psoup::HeapObject head;
+  trace_path *tail;
+};
+
+void trace(psoup::Heap *heap, std::string from_class, std::string to_class) {
+  using path = std::tuple<psoup::HeapObject, trace_path*>;
+  std::queue<path> queue;
+  std::unordered_set<intptr_t> seen;
+  for (psoup::HeapObject o : find_root(from_class, heap)) {
+    queue.push({o, new trace_path(o)});
+    seen.insert(o.Addr());
+  }
+  int count = 0;
+  for (; !queue.empty(); queue.pop()) {
+    count++;
+    psoup::HeapObject next = std::get<0>(queue.front());
+    trace_path *previous = std::get<1>(queue.front());
+    if (count % 10000 == 0) printf("At %d steps, path is %d long\n", count, previous->length());
+    if (class_name(heap, next->ClassId()) == to_class) {
+        printf("Found path: ");
+        for (trace_path *p = previous; p; p = p->tail) {
+          printf("%s@%lx",
+                 class_name(heap, p->head.ClassId()).c_str(),
+                 (long)p->head.Addr());
+          if (p->tail) printf(" <- ");
+        }
+        printf("\n");
+    } else {
+      psoup::Object *from, *to;
+      next->Pointers(&from, &to);
+      for (psoup::Object *ptr = from; ptr <= to; ptr++) {
+        if (!ptr->IsHeapObject()) continue;
+        psoup::HeapObject obj = static_cast<psoup::HeapObject>(*ptr);
+        if (seen.find(obj.Addr()) == seen.end()) {
+          seen.insert(obj.Addr());
+          queue.push({obj, new trace_path(obj, previous)});
+        }
+      }
+    }
+  }
+}
+
 void analyze(psoup::VirtualMemory &snapshot) {
   // Load the snapshot
   PrimordialSoup_Startup();
@@ -99,4 +165,5 @@ void analyze(psoup::VirtualMemory &snapshot) {
   }
   count_instances(heap);
   write_graph(heap);
+  trace(heap, "CounterApp class", "HopscotchWebIDE");
 }
